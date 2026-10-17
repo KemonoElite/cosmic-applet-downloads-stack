@@ -258,7 +258,7 @@ fn fan_row<'a>(label: String, icon: icon::Icon, d: usize, msg: Message) -> Eleme
 
 fn pill_style(theme: &cosmic::Theme) -> cosmic::iced::widget::container::Style {
     let cosmic = theme.cosmic();
-    let component = &cosmic.primary.component;
+    let component = &cosmic.primary(theme.transparent).component;
     cosmic::iced::widget::container::Style {
         text_color: Some(component.on.into()),
         background: Some(Background::Color(component.base.into())),
