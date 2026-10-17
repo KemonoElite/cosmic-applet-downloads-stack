@@ -1,0 +1,104 @@
+name: Flatpak repo
+
+# Builds the Flatpak and publishes an OSTree repo to GitHub Pages (gh-pages branch).
+# In GitHub: Settings -> Pages -> Source: "Deploy from a branch" -> gh-pages / (root).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: flatpak-repo
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder gnupg
+          # Ubuntu 24.04 runners restrict unprivileged user namespaces, which bwrap needs.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - name: Import signing key (optional)
+        id: gpg
+        env:
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -n "$FLATPAK_GPG_PRIVATE_KEY" ]; then
+            printf '%s\n' "$FLATPAK_GPG_PRIVATE_KEY" | gpg --batch --import
+            key_id=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')
+            echo "key_id=$key_id" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Flatpak
+        env:
+          KEY_ID: ${{ steps.gpg.outputs.key_id }}
+        run: |
+          APP_ID=$(basename "$(ls io.github.*.json | head -n 1)" .json)
+          echo "APP_ID=$APP_ID" >> "$GITHUB_ENV"
+          flatpak-builder --user --force-clean --disable-rofiles-fuse \
+            --install-deps-from=flathub --default-branch=stable --repo=repo \
+            ${KEY_ID:+--gpg-sign="$KEY_ID"} \
+            build-dir "$APP_ID.json"
+
+      - name: Update repo metadata
+        env:
+          KEY_ID: ${{ steps.gpg.outputs.key_id }}
+        run: |
+          flatpak build-update-repo --generate-static-deltas --prune \
+            ${KEY_ID:+--gpg-sign="$KEY_ID"} repo
+
+      - name: Assemble site
+        env:
+          KEY_ID: ${{ steps.gpg.outputs.key_id }}
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          NAME="${GITHUB_REPOSITORY#*/}"
+          URL="https://${OWNER}.github.io/${NAME}"
+
+          mkdir -p site
+          mv repo site/repo
+
+          GPG_LINE=""
+          if [ -n "$KEY_ID" ]; then
+            GPG_LINE="GPGKey=$(gpg --export "$KEY_ID" | base64 -w0)"
+          fi
+
+          {
+            echo "[Flatpak Repo]"
+            echo "Title=Downloads Stack"
+            echo "Url=${URL}/repo/"
+            echo "Homepage=https://github.com/${GITHUB_REPOSITORY}"
+            echo "Comment=COSMIC Downloads Stack applet"
+            echo "DefaultBranch=stable"
+            [ -z "$GPG_LINE" ] || echo "$GPG_LINE"
+          } > site/downloads-stack.flatpakrepo
+
+          {
+            echo "[Flatpak Ref]"
+            echo "Title=Downloads Stack"
+            echo "Name=${APP_ID}"
+            echo "Branch=stable"
+            echo "Url=${URL}/repo/"
+            echo "SuggestRemoteName=downloads-stack"
+            echo "IsRuntime=false"
+            echo "RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo"
+            [ -z "$GPG_LINE" ] || echo "$GPG_LINE"
+          } > "site/${APP_ID}.flatpakref"
+
+      - name: Publish to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: site
+          force_orphan: true
