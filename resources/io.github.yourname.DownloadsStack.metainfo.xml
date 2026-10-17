@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.yourname.DownloadsStack</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <name>Downloads Stack</name>
+  <summary>Fan view of your recent downloads for the COSMIC panel</summary>
+  <developer id="io.github.yourname">
+    <name>yourname</name>
+  </developer>
+  <description>
+    <p>A COSMIC panel applet that shows your most recent downloads in a curved fan, like a Dock stack. Click a file to open it, or open the whole Downloads folder.</p>
+  </description>
+  <url type="homepage">https://github.com/yourname/cosmic-applet-downloads-stack</url>
+  <url type="bugtracker">https://github.com/yourname/cosmic-applet-downloads-stack/issues</url>
+  <launchable type="desktop-id">io.github.yourname.DownloadsStack.desktop</launchable>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-10-16" />
+  </releases>
+</component>

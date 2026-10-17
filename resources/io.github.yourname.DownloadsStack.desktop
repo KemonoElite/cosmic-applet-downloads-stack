@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Downloads Stack
+Comment=Fan view of your recent downloads
+Type=Application
+Icon=io.github.yourname.DownloadsStack
+Exec=cosmic-applet-downloads-stack
+Terminal=false
+StartupNotify=true
+NotShowIn=COSMIC
+Categories=COSMIC
+Keywords=COSMIC;Downloads;Stack
+X-CosmicApplet=true
+X-CosmicHoverPopup=Auto

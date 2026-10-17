@@ -1,0 +1,44 @@
+{
+  "id": "io.github.yourname.DownloadsStack",
+  "runtime": "org.freedesktop.Platform",
+  "runtime-version": "25.08",
+  "sdk": "org.freedesktop.Sdk",
+  "sdk-extensions": ["org.freedesktop.Sdk.Extension.rust-stable"],
+  "command": "cosmic-applet-downloads-stack",
+  "finish-args": [
+    "--socket=wayland",
+    "--device=dri",
+    "--filesystem=xdg-download",
+    "--filesystem=xdg-config/user-dirs.dirs:ro",
+    "--filesystem=xdg-config/cosmic:ro",
+    "--talk-name=com.system76.CosmicSettingsDaemon"
+  ],
+  "build-options": {
+    "append-path": "/usr/lib/sdk/rust-stable/bin",
+    "build-args": ["--share=network"],
+    "env": {
+      "CARGO_HOME": "/run/build/downloads-stack/cargo",
+      "CARGO_TERM_COLOR": "always"
+    }
+  },
+  "modules": [
+    {
+      "name": "downloads-stack",
+      "buildsystem": "simple",
+      "build-commands": [
+        "cargo build --release",
+        "install -Dm0755 target/release/cosmic-applet-downloads-stack /app/bin/cosmic-applet-downloads-stack",
+        "install -Dm0644 resources/io.github.yourname.DownloadsStack.desktop /app/share/applications/io.github.yourname.DownloadsStack.desktop",
+        "install -Dm0644 resources/io.github.yourname.DownloadsStack.metainfo.xml /app/share/metainfo/io.github.yourname.DownloadsStack.metainfo.xml",
+        "install -Dm0644 resources/io.github.yourname.DownloadsStack.svg /app/share/icons/hicolor/scalable/apps/io.github.yourname.DownloadsStack.svg"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": ".",
+          "skip": [".git", ".github", ".flatpak-builder", "build-dir", "repo", "site", "target"]
+        }
+      ]
+    }
+  ]
+}
