@@ -1,0 +1,6 @@
+[Flatpak Repo]
+Title=Downloads Stack
+Url=https://kemonoelite.github.io/cosmic-applet-downloads-stack/repo/
+Homepage=https://github.com/KemonoElite/cosmic-applet-downloads-stack
+Comment=COSMIC Downloads Stack applet
+DefaultBranch=stable
