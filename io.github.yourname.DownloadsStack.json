@@ -11,7 +11,7 @@
     "--filesystem=xdg-download",
     "--filesystem=xdg-config/user-dirs.dirs:ro",
     "--filesystem=xdg-config/cosmic:ro",
-    "--talk-name=com.system76.CosmicSettingsDaemon"
+    "--talk-name=com.system76.CosmicSettingsDaemon",
     "--filesystem=/run/current-system/sw/share/icons:ro",
     "--filesystem=~/.nix-profile/share/icons:ro",
     "--filesystem=/nix/store:ro"
