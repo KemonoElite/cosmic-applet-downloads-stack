@@ -72,10 +72,3 @@ and the COSMIC settings daemon on D-Bus. Files open through the desktop portal.
 ## Tweak
 
 In `src/app.rs`: `MAX_ITEMS` (how many files), `MAX_NAME_CHARS`, `ARC_DEPTH` (curve of the fan).
-
-## Flatpak
-
-f=~/.local/share/flatpak/exports/share/applications/io.github.yourname.DownloadsStack.desktop
-cp -L "$f" /tmp/ds.desktop
-printf '\nX-CosmicApplet=true\nX-CosmicHoverPopup=Auto\n' >> /tmp/ds.desktop
-rm "$f" && cp /tmp/ds.desktop "$f"
