@@ -50,6 +50,18 @@ Save the printed key as a repo secret named `FLATPAK_GPG_PRIVATE_KEY`, re-run th
 Needs `flatpak`, `flatpak-builder` and `just`. libcosmic needs a recent Rust (1.93+); the
 `rust-stable` extension tracks the latest stable.
 
+## Icons
+
+The panel button and the file-type icons come from **your system icon theme** (the one set in
+COSMIC Settings). The applet follows it live, so switching themes updates the icons without a restart.
+
+- **Flatpak:** the sandbox can't see the host's `/usr`, but Flatpak exposes host icon themes at
+  `/run/host/share/icons` and `/run/host/user-share/icons`. The applet adds both to `XDG_DATA_DIRS` on
+  startup (`icons::init` in `src/icons.rs`), so no extra permission is needed.
+- **Built in:** a small set of SVGs in `resources/icons/` is compiled into the binary. They are used
+  only when the theme has none of the icons the applet asks for, so an icon is never blank.
+  File names are freedesktop icon names; edit an SVG and rebuild to change it.
+
 ## Sandbox permissions
 
 `--socket=wayland`, `--device=dri` (rendering), `--filesystem=xdg-download` (read your downloads),
@@ -58,7 +70,10 @@ and the COSMIC settings daemon on D-Bus. Files open through the desktop portal.
 
 ## Troubleshooting
 
-- **Wrong colors/icons**: change `xdg-config/cosmic:ro` to `:rw` in the manifest (Minimon uses `rw`).
+- **Wrong colors**: change `xdg-config/cosmic:ro` to `:rw` in the manifest (Minimon uses `rw`).
+- **Icons don't match the desktop (Flatpak)**: the sandbox only reaches themes installed in the host's
+  `/usr/share/icons` or `~/.local/share/icons`. A theme installed elsewhere, or symlinked out of those
+  folders, is invisible to it and the built-in icons are shown instead.
 - **"Downloads folder not found"**: check `flatpak info --show-permissions io.github.USER.DownloadsStack`.
 - **Logs**: `journalctl -f` while clicking the applet.
 - Building for Flathub itself needs offline sources (`flatpak-cargo-generator` + `Cargo.lock`)
@@ -72,6 +87,7 @@ and the COSMIC settings daemon on D-Bus. Files open through the desktop portal.
 ## Tweak
 
 In `src/app.rs`: `MAX_ITEMS` (how many files), `MAX_NAME_CHARS`, `ARC_DEPTH` (curve of the fan).
+In `src/icons.rs`: the list of built-in icons.
 
 ## Flatpak
 

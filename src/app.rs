@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use crate::downloads::{self, Entry};
+use crate::icons;
 use cosmic::applet::cosmic_panel_config::PanelAnchor;
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
 use cosmic::iced::{Alignment, Background, Border, Length, Padding, window::Id};
@@ -71,13 +72,7 @@ impl cosmic::Application for AppModel {
     /// The button shown in the panel.
     fn view(&self) -> Element<'_, Self::Message> {
         let size = self.core.applet.suggested_size(true).0;
-        let handle: icon::Handle = icon::from_name("folder-download-symbolic")
-            .fallback(Some(icon::IconFallback::Names(vec![
-                "folder-symbolic".into(),
-            ])))
-            .symbolic(true)
-            .size(size)
-            .into();
+        let handle = icons::resolve(&["folder-download-symbolic", "folder-symbolic"], size);
 
         self.core
             .applet
@@ -116,7 +111,7 @@ impl cosmic::Application for AppModel {
 
         rows.push(fan_row(
             "Open in Files".to_owned(),
-            file_icon(&["folder-open-symbolic".to_owned(), "folder".to_owned()]),
+            file_icon(&["folder-open-symbolic", "folder"]),
             self.entries.len(),
             Message::OpenFolder,
         ));
@@ -214,16 +209,9 @@ fn open_path(path: PathBuf) -> Task<cosmic::Action<Message>> {
     })
 }
 
-/// Icon with fallbacks: the first name is tried first, the rest if it is missing.
-fn file_icon(names: &[String]) -> icon::Icon {
-    let (first, rest) = names.split_first().expect("icon names are never empty");
-    icon::from_name(first.clone())
-        .fallback(Some(icon::IconFallback::Names(
-            rest.iter().cloned().map(Into::into).collect(),
-        )))
-        .size(ICON_SIZE)
-        .icon()
-        .size(ICON_SIZE)
+/// Icon from the system theme, trying `names` in order, with built-in icons as the last resort.
+fn file_icon<S: AsRef<str>>(names: &[S]) -> icon::Icon {
+    icons::resolve(names, ICON_SIZE).icon().size(ICON_SIZE)
 }
 
 /// One row of the fan: a label pill with its icon on the right.
