@@ -7,21 +7,6 @@ Click a file to open it, or "Open in Files" to open the whole folder.
 - Hides dotfiles and in-progress downloads (`.part`, `.crdownload`, ...)
 - Re-scans the folder every time you open it
 
-## Host it as a Flatpak repo (GitHub Pages)
-
-1. Put your GitHub username in the project:
-
-       sh scripts/set-owner.sh YOUR_GITHUB_USERNAME [repo-name]
-
-   (default repo name is `cosmic-applet-downloads-stack`)
-
-2. Create that repo on GitHub and push this folder to the `main` branch.
-3. In the repo: **Settings → Actions → General → Workflow permissions → Read and write**.
-4. Let the **Flatpak repo** workflow finish (Actions tab, about 15-30 min the first time).
-5. **Settings → Pages → Source: Deploy from a branch → `gh-pages` / `(root)`**.
-
-Every push to `main` rebuilds and republishes the repo.
-
 ### Add the repo and install
 
 Replace `USER` and `REPO`; USER is lowercase.
@@ -91,4 +76,4 @@ In `src/icons.rs`: the list of built-in icons.
 
 ## Flatpak current issues
 
-f=~/.local/share/flatpak/exports/share/applications/io.github.yourname.DownloadsStack.desktop; cp -L "$f" /tmp/ds.desktop && { grep -q '^X-CosmicApplet=' /tmp/ds.desktop || sed -i '/^\[Desktop Entry\]/a X-CosmicApplet=true' /tmp/ds.desktop; grep -q '^X-CosmicHoverPopup=' /tmp/ds.desktop || sed -i '/^\[Desktop Entry\]/a X-CosmicHoverPopup=Auto' /tmp/ds.desktop; cp --remove-destination /tmp/ds.desktop "$f" && grep -n 'X-Cosmic' "$f"; }
+`f=~/.local/share/flatpak/exports/share/applications/io.github.yourname.DownloadsStack.desktop; cp -L "$f" /tmp/ds.desktop && { grep -q '^X-CosmicApplet=' /tmp/ds.desktop || sed -i '/^\[Desktop Entry\]/a X-CosmicApplet=true' /tmp/ds.desktop; grep -q '^X-CosmicHoverPopup=' /tmp/ds.desktop || sed -i '/^\[Desktop Entry\]/a X-CosmicHoverPopup=Auto' /tmp/ds.desktop; cp --remove-destination /tmp/ds.desktop "$f" && grep -n 'X-Cosmic' "$f"; }`
