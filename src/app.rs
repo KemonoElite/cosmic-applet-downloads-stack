@@ -3,9 +3,9 @@
 use crate::downloads::{self, Entry};
 use crate::icons;
 use cosmic::applet::cosmic_panel_config::PanelAnchor;
-use cosmic::surface::action::{app_popup, destroy_popup};
 use cosmic::iced::{Alignment, Background, Border, Length, Padding, window::Id};
 use cosmic::prelude::*;
+use cosmic::surface::action::{app_popup, destroy_popup};
 use cosmic::widget::{self, icon};
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -37,7 +37,7 @@ pub enum Message {
     Opened,
     /// Popup create/destroy requests, routed through libcosmic's surface manager
     /// so the popup is tracked (frosted glass, corner radii, live theme updates).
-    Surface(cosmic::surface::Action),
+    Surface(cosmic::surface::Action<Message>),
 }
 
 impl cosmic::Application for AppModel {
@@ -135,7 +135,9 @@ impl cosmic::Application for AppModel {
         match message {
             Message::TogglePopup => {
                 if let Some(p) = self.popup.take() {
-                    return cosmic::task::message(cosmic::Action::Surface(destroy_popup(p)));
+                    return cosmic::task::message(cosmic::Action::Surface(
+                        destroy_popup::<Message>(p),
+                    ));
                 }
                 // Re-scan the folder every time the popup opens.
                 return Task::batch([
@@ -191,7 +193,9 @@ impl cosmic::Application for AppModel {
 impl AppModel {
     fn close_popup(&mut self) -> Task<cosmic::Action<Message>> {
         match self.popup.take() {
-            Some(p) => cosmic::task::message(cosmic::Action::Surface(destroy_popup(p))),
+            Some(p) => {
+                cosmic::task::message(cosmic::Action::Surface(destroy_popup::<Message>(p)))
+            }
             None => Task::none(),
         }
     }
