@@ -3,7 +3,7 @@
 use crate::downloads::{self, Entry};
 use crate::icons;
 use cosmic::applet::cosmic_panel_config::PanelAnchor;
-use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
+use cosmic::surface::action::{app_popup, destroy_popup};
 use cosmic::iced::{Alignment, Background, Border, Length, Padding, window::Id};
 use cosmic::prelude::*;
 use cosmic::widget::{self, icon};
@@ -35,6 +35,9 @@ pub enum Message {
     Open(PathBuf),
     OpenFolder,
     Opened,
+    /// Popup create/destroy requests, routed through libcosmic's surface manager
+    /// so the popup is tracked (frosted glass, corner radii, live theme updates).
+    Surface(cosmic::surface::Action),
 }
 
 impl cosmic::Application for AppModel {
@@ -132,19 +135,28 @@ impl cosmic::Application for AppModel {
         match message {
             Message::TogglePopup => {
                 if let Some(p) = self.popup.take() {
-                    return destroy_popup(p);
+                    return cosmic::task::message(cosmic::Action::Surface(destroy_popup(p)));
                 }
-                let new_id = Id::unique();
-                self.popup = Some(new_id);
-                let settings = self.core.applet.get_popup_settings(
-                    self.core.main_window_id().unwrap(),
-                    new_id,
-                    None,
-                    None,
-                    None,
-                );
                 // Re-scan the folder every time the popup opens.
-                return Task::batch([get_popup(settings), self.reload()]);
+                return Task::batch([
+                    cosmic::task::message(cosmic::Action::Surface(app_popup::<AppModel>(
+                        |_| Default::default(),
+                        |state: &mut AppModel| {
+                            let new_id = Id::unique();
+                            state.popup = Some(new_id);
+                            state.core.applet.get_popup_settings(
+                                state.core.main_window_id().unwrap(),
+                                new_id,
+                                None,
+                                None,
+                                None,
+                            )
+                        },
+                        // None = use `view_window` below.
+                        None,
+                    ))),
+                    self.reload(),
+                ]);
             }
             Message::PopupClosed(id) => {
                 if self.popup.as_ref() == Some(&id) {
@@ -164,6 +176,9 @@ impl cosmic::Application for AppModel {
                 }
             }
             Message::Opened => {}
+            Message::Surface(a) => {
+                return cosmic::task::message(cosmic::Action::Surface(a));
+            }
         }
         Task::none()
     }
@@ -176,7 +191,7 @@ impl cosmic::Application for AppModel {
 impl AppModel {
     fn close_popup(&mut self) -> Task<cosmic::Action<Message>> {
         match self.popup.take() {
-            Some(p) => destroy_popup(p),
+            Some(p) => cosmic::task::message(cosmic::Action::Surface(destroy_popup(p))),
             None => Task::none(),
         }
     }
