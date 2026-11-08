@@ -65,7 +65,13 @@ impl cosmic::Application for AppModel {
             dir: downloads::downloads_dir(),
             ..Default::default()
         };
-        (app, Task::none())
+        // EXPERIMENT: libcosmic only makes surfaces translucent (and requests blur) after it
+        // receives its internal "blur supported" event. Send that event ourselves to see
+        // whether it is the missing piece.
+        let blur = cosmic::task::message(cosmic::Action::<Message>::Cosmic(
+            cosmic::app::Action::BlurEnabled,
+        ));
+        (app, blur)
     }
 
     fn on_close_requested(&self, id: Id) -> Option<Message> {
