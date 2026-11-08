@@ -89,9 +89,6 @@ and the COSMIC settings daemon on D-Bus. Files open through the desktop portal.
 In `src/app.rs`: `MAX_ITEMS` (how many files), `MAX_NAME_CHARS`, `ARC_DEPTH` (curve of the fan).
 In `src/icons.rs`: the list of built-in icons.
 
-## Flatpak
+## Flatpak current issues
 
-f=~/.local/share/flatpak/exports/share/applications/io.github.yourname.DownloadsStack.desktop
-cp -L "$f" /tmp/ds.desktop
-printf '\nX-CosmicApplet=true\nX-CosmicHoverPopup=Auto\n' >> /tmp/ds.desktop
-rm "$f" && cp /tmp/ds.desktop "$f"
+f=~/.local/share/flatpak/exports/share/applications/io.github.yourname.DownloadsStack.desktop; cp -L "$f" /tmp/ds.desktop && { grep -q '^X-CosmicApplet=' /tmp/ds.desktop || sed -i '/^\[Desktop Entry\]/a X-CosmicApplet=true' /tmp/ds.desktop; grep -q '^X-CosmicHoverPopup=' /tmp/ds.desktop || sed -i '/^\[Desktop Entry\]/a X-CosmicHoverPopup=Auto' /tmp/ds.desktop; cp --remove-destination /tmp/ds.desktop "$f" && grep -n 'X-Cosmic' "$f"; }
