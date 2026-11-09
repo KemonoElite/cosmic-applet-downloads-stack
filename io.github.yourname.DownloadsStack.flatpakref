@@ -1,0 +1,8 @@
+[Flatpak Ref]
+Title=Downloads Stack
+Name=io.github.yourname.DownloadsStack
+Branch=stable
+Url=https://kemonoelite.github.io/cosmic-applet-downloads-stack/repo/
+SuggestRemoteName=downloads-stack
+IsRuntime=false
+RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
