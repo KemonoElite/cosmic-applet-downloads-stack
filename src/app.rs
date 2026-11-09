@@ -35,9 +35,6 @@ pub enum Message {
     Open(PathBuf),
     OpenFolder,
     Opened,
-    /// Popup create/destroy requests, routed through libcosmic's surface manager
-    /// so the popup is tracked (frosted glass, corner radii, live theme updates).
-    Surface(cosmic::surface::Action<Message>),
 }
 
 impl cosmic::Application for AppModel {
@@ -178,9 +175,6 @@ impl cosmic::Application for AppModel {
                 }
             }
             Message::Opened => {}
-            Message::Surface(a) => {
-                return cosmic::task::message(cosmic::Action::Surface(a));
-            }
         }
         Task::none()
     }
