@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 mod downloads;
+mod icons;
 mod localize;
 
 use crate::downloads::Entry;
@@ -12,10 +13,9 @@ use cosmic::{
         token::subscription::{TokenRequest, TokenUpdate, activation_token_subscription},
     },
     cctk::sctk::reexports::calloop,
-    cosmic_theme::Spacing,
     iced::{
-        self, Alignment, Background, Border, Length, Padding, Subscription,
-        widget::{column, row},
+        self, Alignment, Background, Border, Length, Limits, Padding, Subscription,
+        widget::{column, row, text::Wrapping},
         window,
     },
     surface, theme,
@@ -30,8 +30,26 @@ const MAX_NAME_CHARS: usize = 30;
 const ICON_SIZE: u16 = 32;
 /// How far (px) the fan bends sideways at its far end.
 const ARC_DEPTH: f32 = 40.0;
+/// Wider than libcosmic's default 360 px, so a full-length name, its icon and the arc fit.
+const POPUP_MAX_WIDTH: f32 = 480.0;
+
+// The fan is drawn tighter than a regular applet menu. COSMIC's spacing tokens are menu-sized
+// (and grow with the interface density setting), so the fan keeps its own measurements.
+/// Space around the whole fan.
+const FAN_PADDING: u16 = 8;
+/// Between rows.
+const ROW_SPACING: u16 = 2;
+/// Above and below each row.
+const ROW_PADDING: f32 = 2.0;
+/// Left and right of each row, before the arc is added.
+const ROW_EDGE: f32 = 8.0;
+/// Between the label and its icon.
+const LABEL_GAP: u16 = 10;
+/// Inside the label pill: vertical, horizontal.
+const PILL_PADDING: [u16; 2] = [4, 10];
 
 pub fn run() -> cosmic::iced::Result {
+    icons::add_nixos_profile_dirs();
     localize::localize();
 
     cosmic::applet::run::<DownloadsStack>(())
@@ -109,13 +127,19 @@ impl cosmic::Application for DownloadsStack {
                             let new_id = window::Id::unique();
                             app.popup.replace(new_id);
 
-                            app.core.applet.get_popup_settings(
+                            let mut popup_settings = app.core.applet.get_popup_settings(
                                 app.core.main_window_id().unwrap(),
                                 new_id,
                                 None,
                                 None,
                                 None,
-                            )
+                            );
+                            popup_settings.positioner.size_limits = Limits::NONE
+                                .max_width(POPUP_MAX_WIDTH)
+                                .min_width(1.)
+                                .max_height(1080.)
+                                .min_height(1.);
+                            popup_settings
                         },
                         None,
                     )),
@@ -192,19 +216,6 @@ impl cosmic::Application for DownloadsStack {
             return widget::text("").into();
         }
 
-        let Spacing {
-            space_xxs,
-            space_xs,
-            space_s,
-            space_m,
-            ..
-        } = theme::active().cosmic().spacing;
-        let spacing = FanSpacing {
-            row: space_xxs,
-            gap: space_s,
-            edge: space_m,
-        };
-
         let content = if self.dir.is_none() {
             column![padded_control(text::body(fl!("no-downloads-folder")))]
         } else {
@@ -219,7 +230,6 @@ impl cosmic::Application for DownloadsStack {
                         handle.clone(),
                         d,
                         Message::Open(entry.path.clone()),
-                        spacing,
                     )
                 })
                 .collect();
@@ -233,7 +243,6 @@ impl cosmic::Application for DownloadsStack {
                 icon::from_name("folder-open-symbolic").size(ICON_SIZE).handle(),
                 self.entries.len(),
                 Message::OpenFolder,
-                spacing,
             ));
 
             // With a bottom panel the newest file sits at the bottom, like the macOS Dock.
@@ -245,9 +254,9 @@ impl cosmic::Application for DownloadsStack {
         };
 
         let content = content
-            .spacing(space_xxs)
+            .spacing(ROW_SPACING)
             .align_x(Alignment::Start)
-            .padding([space_xs, 0]);
+            .padding(FAN_PADDING);
 
         self.core.applet.popup_container(content).into()
     }
@@ -345,30 +354,14 @@ fn file_icon(names: &[String]) -> icon::Handle {
     }
 }
 
-#[derive(Clone, Copy)]
-struct FanSpacing {
-    /// Vertical padding inside a row.
-    row: u16,
-    /// Between the label and its icon.
-    gap: u16,
-    /// Left and right padding of a row, before the arc is added.
-    edge: u16,
-}
-
 /// One row of the fan: the label on a pill, with its icon to the right.
 /// `d` is the distance from the panel and drives the sideways arc.
-fn fan_row<'a>(
-    label: String,
-    handle: icon::Handle,
-    d: usize,
-    msg: Message,
-    spacing: FanSpacing,
-) -> Element<'a, Message> {
+fn fan_row<'a>(label: String, handle: icon::Handle, d: usize, msg: Message) -> Element<'a, Message> {
     let t = (d as f32 / MAX_ITEMS as f32).min(1.0);
-    let edge = f32::from(spacing.edge);
 
-    let pill = widget::container(text::body(label))
-        .padding([spacing.row, spacing.gap])
+    // Names are already shortened, so a label never needs a second line.
+    let pill = widget::container(text::body(label).wrapping(Wrapping::None))
+        .padding(PILL_PADDING)
         .class(theme::Container::custom(pill_style));
 
     let content = row![
@@ -376,16 +369,16 @@ fn fan_row<'a>(
         pill,
         icon::icon(handle).size(ICON_SIZE),
     ]
-    .spacing(spacing.gap)
+    .spacing(LABEL_GAP)
     .align_y(Alignment::Center);
 
     menu_button(content)
         .on_press(msg)
         .padding(Padding {
-            top: f32::from(spacing.row),
-            right: edge + ARC_DEPTH * (1.0 - t * t),
-            bottom: f32::from(spacing.row),
-            left: edge,
+            top: ROW_PADDING,
+            right: ROW_EDGE + ARC_DEPTH * (1.0 - t * t),
+            bottom: ROW_PADDING,
+            left: ROW_EDGE,
         })
         .into()
 }

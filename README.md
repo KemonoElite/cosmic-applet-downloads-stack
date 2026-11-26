@@ -62,10 +62,15 @@ holds the desktop entry's name, comment and keywords, so `build.rs` picks those 
 
 ## Tweak
 
-In `src/lib.rs`: `MAX_ITEMS` (how many files), `MAX_NAME_CHARS`, `ARC_DEPTH` (curve of the fan).
+In `src/lib.rs`: `MAX_ITEMS` (how many files), `MAX_NAME_CHARS`, `ARC_DEPTH` (curve of the fan),
+and the fan's spacing (`ROW_SPACING`, `PILL_PADDING`, ...).
 
 ## Icons
 
 All icons come from your icon theme and follow it live. File icons use the freedesktop mime names
 (`image-png`, then `image-x-generic`, then `text-x-generic`); if the theme has none of those, a
 symbolic generic icon is used so a row is never blank.
+
+On NixOS the panel doesn't always pass the profile folders that hold icon themes on to applets,
+which hides themes installed with `users.users.<name>.packages` or Home Manager. The applet adds
+those folders itself on startup (`src/icons.rs`), so the theme picked in COSMIC Settings is used.
