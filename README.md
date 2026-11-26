@@ -4,7 +4,9 @@ A COSMIC panel applet that fans out your most recent downloads, like a Dock stac
 Click a file to open it, or **Open in Files** to open the whole folder.
 
 - Newest file sits closest to the panel (bottom panel: newest at the bottom, like the Dock)
-- Hides dotfiles and in-progress downloads (`.part`, `.crdownload`, ...)
+- Downloads in progress (`.part`, `.crdownload`, ...) show a progress bar under their name,
+  updated every second while the stack is open
+- Hides dotfiles
 - Re-scans the folder every time it opens
 - Opened apps get focus, through a Wayland activation token like the stock applets
 
@@ -44,6 +46,23 @@ Other ways in:
 The flake uses [crane](https://github.com/ipetkov/crane) with the stable Rust toolchain from
 [fenix](https://github.com/nix-community/fenix), the same as cosmic-applets. It asks to use the
 nix-community cache for that toolchain; accepting saves compiling Rust.
+
+## Download progress
+
+A partial file doesn't say how big the finished download will be, so where the total comes from
+depends on the browser:
+
+- **Brave, Chrome, Chromium, Vivaldi, Edge, Opera** (`.crdownload`): the browser records the
+  expected size in its `History` database. The applet copies that database to
+  `$XDG_RUNTIME_DIR/cosmic-applet-downloads-stack/`, reads only the unfinished downloads (path,
+  expected size, state), and deletes the copy. The bar fills up and shows "4.5 MB of 12 MB". The
+  browser saves to that database every few seconds, so the total can take a moment to appear.
+- **Firefox** (`.part`) and others: the total isn't recorded anywhere the applet can read, so the
+  bar animates and the size counts up.
+
+A download that hasn't grown for 30 seconds is marked **Stalled**; one the browser reports as
+failed or paused is marked **Interrupted**. Clicking a download in progress opens the Downloads
+folder.
 
 ## Develop
 

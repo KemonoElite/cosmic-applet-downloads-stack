@@ -16,6 +16,8 @@ i18n-embed = { version = "0.16.0", features = ["fluent-system", "desktop-request
 i18n-embed-fl = "0.10"
 mime_guess = "2"
 rust-embed = "8.11.0"
+# Reads download sizes from Chromium's History database; bundled, so no system SQLite is needed.
+rusqlite = { version = "0.43", features = ["bundled"] }
 tokio = { version = "1.49.0", features = ["full"] }
 tracing = "0.1"
 tracing-log = "0.2.0"

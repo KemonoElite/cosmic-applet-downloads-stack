@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+mod chromium;
 mod downloads;
 mod icons;
 mod localize;
 
-use crate::downloads::Entry;
+use crate::downloads::{Entry, Progress, State};
+use cosmic::iced::core::text::{Ellipsize, EllipsizeHeightLimit, Wrapping};
 use cosmic::{
     Element, Task, app,
     applet::{
@@ -19,10 +21,9 @@ use cosmic::{
         window,
     },
     surface, theme,
-    widget::{self, icon, text},
+    widget::{self, icon, progress_bar, text},
 };
-use cosmic::iced::core::text::{Ellipsize, EllipsizeHeightLimit, Wrapping};
-use std::{borrow::Cow, path::PathBuf};
+use std::{borrow::Cow, collections::HashMap, path::PathBuf, time::Duration};
 
 /// How many recent items the stack shows.
 const MAX_ITEMS: usize = 10;
@@ -49,6 +50,13 @@ const ROW_EDGE: f32 = 8.0;
 const LABEL_GAP: u16 = 10;
 /// Inside the label pill: vertical, horizontal.
 const PILL_PADDING: [u16; 2] = [4, 10];
+/// The progress bar under a download's name.
+const BAR_WIDTH: f32 = 140.0;
+const BAR_GIRTH: f32 = 4.0;
+/// Between the name and the progress line, and between the bar and its caption.
+const PROGRESS_SPACING: u16 = 6;
+/// How often the stack re-reads the folder while something is downloading.
+const PROGRESS_REFRESH: Duration = Duration::from_secs(1);
 
 pub fn run() -> cosmic::iced::Result {
     icons::add_nixos_profile_dirs();
@@ -63,7 +71,11 @@ struct DownloadsStack {
     dir: Option<PathBuf>,
     /// Newest first, with the icon resolved once per scan rather than on every redraw.
     entries: Vec<(Entry, icon::Handle)>,
+    /// Icons by name list, so refreshing a download's progress doesn't look them up again.
+    icon_cache: HashMap<Vec<String>, icon::Handle>,
     loaded: bool,
+    /// A scan is running; refresh ticks are skipped until it's done.
+    scanning: bool,
     token_tx: Option<calloop::channel::Sender<TokenRequest>>,
     /// Waiting for an activation token before it's opened.
     pending_open: Option<PathBuf>,
@@ -74,6 +86,8 @@ enum Message {
     TogglePopup,
     Closed(window::Id),
     Loaded(Option<PathBuf>, Vec<Entry>),
+    /// Re-read the folder to update downloads in progress.
+    Refresh,
     Open(PathBuf),
     OpenFolder,
     Token(TokenUpdate),
@@ -101,7 +115,9 @@ impl cosmic::Application for DownloadsStack {
                 popup: None,
                 dir: downloads::dir(),
                 entries: Vec::new(),
+                icon_cache: HashMap::new(),
                 loaded: false,
+                scanning: false,
                 token_tx: None,
                 pending_open: None,
             },
@@ -122,6 +138,7 @@ impl cosmic::Application for DownloadsStack {
                     ));
                 }
                 // Scan the folder every time the stack opens, so it's never stale.
+                self.scanning = true;
                 return Task::batch([
                     cosmic::surface::surface_task(cosmic::surface::action::app_popup(
                         |_| Default::default(),
@@ -155,14 +172,25 @@ impl cosmic::Application for DownloadsStack {
             }
             Message::Loaded(dir, entries) => {
                 self.dir = dir;
+                let cache = &mut self.icon_cache;
                 self.entries = entries
                     .into_iter()
                     .map(|entry| {
-                        let handle = file_icon(&entry.icon_names);
+                        let handle = cache
+                            .entry(entry.icon_names.clone())
+                            .or_insert_with(|| file_icon(&entry.icon_names))
+                            .clone();
                         (entry, handle)
                     })
                     .collect();
                 self.loaded = true;
+                self.scanning = false;
+            }
+            Message::Refresh => {
+                if self.popup.is_some() && !self.scanning {
+                    self.scanning = true;
+                    return scan();
+                }
             }
             Message::Open(path) => {
                 self.request_open(path);
@@ -227,12 +255,12 @@ impl cosmic::Application for DownloadsStack {
                 .iter()
                 .enumerate()
                 .map(|(d, (entry, handle))| {
-                    fan_row(
-                        entry.name.clone(),
-                        handle.clone(),
-                        d,
-                        Message::Open(entry.path.clone()),
-                    )
+                    // A file that's still downloading can't be opened yet; show where it is.
+                    let msg = match entry.progress {
+                        Some(_) => Message::OpenFolder,
+                        None => Message::Open(entry.path.clone()),
+                    };
+                    fan_row(entry.name.clone(), entry.progress, handle.clone(), d, msg)
                 })
                 .collect();
 
@@ -242,7 +270,10 @@ impl cosmic::Application for DownloadsStack {
 
             rows.push(fan_row(
                 fl!("open-in-files"),
-                icon::from_name("folder-open-symbolic").size(ICON_SIZE).handle(),
+                None,
+                icon::from_name("folder-open-symbolic")
+                    .size(ICON_SIZE)
+                    .handle(),
                 self.entries.len(),
                 Message::OpenFolder,
             ));
@@ -277,7 +308,20 @@ impl cosmic::Application for DownloadsStack {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        activation_token_subscription(0).map(Message::Token)
+        let token = activation_token_subscription(0).map(Message::Token);
+
+        let downloading = self
+            .entries
+            .iter()
+            .any(|(entry, _)| entry.progress.is_some());
+        if self.popup.is_some() && downloading {
+            Subscription::batch([
+                token,
+                iced::time::every(PROGRESS_REFRESH).map(|_| Message::Refresh),
+            ])
+        } else {
+            token
+        }
     }
 
     fn style(&self) -> Option<iced::theme::Style> {
@@ -369,9 +413,16 @@ fn file_icon(names: &[String]) -> icon::Handle {
     }
 }
 
-/// One row of the fan: the label on a pill, with its icon to the right.
+/// One row of the fan: the label on a pill, with its icon to the right. A download in progress
+/// gets a progress bar under its name.
 /// `d` is the distance from the panel and drives the sideways arc.
-fn fan_row<'a>(label: String, handle: icon::Handle, d: usize, msg: Message) -> Element<'a, Message> {
+fn fan_row<'a>(
+    label: String,
+    progress: Option<Progress>,
+    handle: icon::Handle,
+    d: usize,
+    msg: Message,
+) -> Element<'a, Message> {
     let t = (d as f32 / MAX_ITEMS as f32).min(1.0);
 
     // One line; a name too long for the label is shortened in the middle to fit.
@@ -379,17 +430,21 @@ fn fan_row<'a>(label: String, handle: icon::Handle, d: usize, msg: Message) -> E
         .wrapping(Wrapping::None)
         .ellipsize(Ellipsize::Middle(EllipsizeHeightLimit::Lines(1)));
 
-    let pill = widget::container(label)
+    let body: Element<'a, Message> = match progress {
+        Some(progress) => column![label, progress_line(progress)]
+            .spacing(PROGRESS_SPACING)
+            .into(),
+        None => label.into(),
+    };
+
+    let pill = widget::container(body)
         .max_width(LABEL_MAX_WIDTH)
         .padding(PILL_PADDING)
         .class(theme::Container::custom(pill_style));
 
-    let content = row![
-        pill,
-        icon::icon(handle).size(ICON_SIZE),
-    ]
-    .spacing(LABEL_GAP)
-    .align_y(Alignment::Center);
+    let content = row![pill, icon::icon(handle).size(ICON_SIZE),]
+        .spacing(LABEL_GAP)
+        .align_y(Alignment::Center);
 
     menu_button(content)
         .width(Length::Shrink)
@@ -400,6 +455,45 @@ fn fan_row<'a>(label: String, handle: icon::Handle, d: usize, msg: Message) -> E
             bottom: ROW_PADDING,
             left: ROW_EDGE,
         })
+        .into()
+}
+
+/// The bar and caption under a download's name, like a macOS download stack.
+///
+/// The bar fills up when the size is known (Chromium-based browsers). Otherwise it animates
+/// while data arrives, and the caption counts up.
+fn progress_line<'a>(progress: Progress) -> Element<'a, Message> {
+    let fraction = progress.fraction();
+
+    let bar: Element<'a, Message> = match (progress.state, fraction) {
+        (State::Active, None) => progress_bar::indeterminate_linear()
+            .width(BAR_WIDTH)
+            .girth(BAR_GIRTH)
+            .into(),
+        (_, fraction) => progress_bar::determinate_linear(fraction.unwrap_or(0.0))
+            .width(BAR_WIDTH)
+            .girth(BAR_GIRTH)
+            .into(),
+    };
+
+    let received = downloads::format_size(progress.received);
+    let size = match progress.total {
+        Some(total) => fl!(
+            "progress-of",
+            received = received,
+            total = downloads::format_size(total)
+        ),
+        None => received,
+    };
+    let caption = match progress.state {
+        State::Active => size,
+        State::Stalled => fl!("progress-stalled", size = size),
+        State::Interrupted => fl!("progress-interrupted", size = size),
+    };
+
+    row![bar, text::caption(caption).wrapping(Wrapping::None)]
+        .spacing(PROGRESS_SPACING)
+        .align_y(Alignment::Center)
         .into()
 }
 
