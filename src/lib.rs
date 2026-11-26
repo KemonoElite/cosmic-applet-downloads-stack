@@ -9,7 +9,7 @@ use cosmic::{
     Element, Task, app,
     applet::{
         cosmic_panel_config::PanelAnchor,
-        menu_button, padded_control,
+        menu_button,
         token::subscription::{TokenRequest, TokenUpdate, activation_token_subscription},
     },
     cctk::sctk::reexports::calloop,
@@ -19,7 +19,7 @@ use cosmic::{
         window,
     },
     surface, theme,
-    widget::{self, icon, space, text},
+    widget::{self, icon, text},
 };
 use cosmic::iced::core::text::{Ellipsize, EllipsizeHeightLimit, Wrapping};
 use std::{borrow::Cow, path::PathBuf};
@@ -32,7 +32,7 @@ const LABEL_MAX_WIDTH: f32 = 400.0;
 const ICON_SIZE: u16 = 32;
 /// How far (px) the fan bends sideways at its far end.
 const ARC_DEPTH: f32 = 40.0;
-/// Wider than libcosmic's default 360 px, so a full-width label, its icon and the arc fit.
+/// The popup fits the fan up to this width. A full-width label, its icon and the arc need ~540.
 const POPUP_MAX_WIDTH: f32 = 600.0;
 
 // The fan is drawn tighter than a regular applet menu. COSMIC's spacing tokens are menu-sized
@@ -219,7 +219,7 @@ impl cosmic::Application for DownloadsStack {
         }
 
         let content = if self.dir.is_none() {
-            column![padded_control(text::body(fl!("no-downloads-folder")))]
+            column![message_row(fl!("no-downloads-folder"))]
         } else {
             // Built nearest-to-the-panel first, so `d` is the distance along the fan.
             let mut rows: Vec<Element<'_, Message>> = self
@@ -237,7 +237,7 @@ impl cosmic::Application for DownloadsStack {
                 .collect();
 
             if self.loaded && self.entries.is_empty() {
-                rows.push(padded_control(text::body(fl!("no-downloads"))).into());
+                rows.push(message_row(fl!("no-downloads")));
             }
 
             rows.push(fan_row(
@@ -257,10 +257,23 @@ impl cosmic::Application for DownloadsStack {
 
         let content = content
             .spacing(ROW_SPACING)
-            .align_x(Alignment::Start)
+            // Rows are only as wide as their content and line up on the right, so a long name
+            // grows the fan to the left and the icons stay put.
+            .align_x(Alignment::End)
             .padding(FAN_PADDING);
 
-        self.core.applet.popup_container(content).into()
+        // popup_container is a fixed 360 px wide; let it fit the fan instead.
+        self.core
+            .applet
+            .popup_container(content)
+            .limits(
+                Limits::NONE
+                    .min_width(1.)
+                    .max_width(POPUP_MAX_WIDTH)
+                    .min_height(1.)
+                    .max_height(1000.),
+            )
+            .into()
     }
 
     fn subscription(&self) -> Subscription<Message> {
@@ -372,7 +385,6 @@ fn fan_row<'a>(label: String, handle: icon::Handle, d: usize, msg: Message) -> E
         .class(theme::Container::custom(pill_style));
 
     let content = row![
-        space::horizontal().width(Length::Fill),
         pill,
         icon::icon(handle).size(ICON_SIZE),
     ]
@@ -380,6 +392,7 @@ fn fan_row<'a>(label: String, handle: icon::Handle, d: usize, msg: Message) -> E
     .align_y(Alignment::Center);
 
     menu_button(content)
+        .width(Length::Shrink)
         .on_press(msg)
         .padding(Padding {
             top: ROW_PADDING,
@@ -387,6 +400,13 @@ fn fan_row<'a>(label: String, handle: icon::Handle, d: usize, msg: Message) -> E
             bottom: ROW_PADDING,
             left: ROW_EDGE,
         })
+        .into()
+}
+
+/// A line of text in place of the fan, sized to its content.
+fn message_row<'a>(message: String) -> Element<'a, Message> {
+    widget::container(text::body(message))
+        .padding(Padding::from(PILL_PADDING))
         .into()
 }
 
