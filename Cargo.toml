@@ -1,0 +1,33 @@
+[package]
+name = "cosmic-applet-downloads-stack"
+version = "0.2.0"
+edition = "2024"
+license = "GPL-3.0-only"
+description = "Your most recent downloads, fanned out from the COSMIC panel"
+repository = "https://github.com/KemonoElite/cosmic-applet-downloads-stack"
+
+[build-dependencies]
+xdgen = "0.1"
+
+[dependencies]
+cosmic-launch = { git = "https://github.com/pop-os/libcosmic", features = ["systemd", "tokio"] }
+dirs = "6"
+i18n-embed = { version = "0.16.0", features = ["fluent-system", "desktop-requester"] }
+i18n-embed-fl = "0.10"
+mime_guess = "2"
+rust-embed = "8.11.0"
+tokio = { version = "1.49.0", features = ["full"] }
+tracing = "0.1"
+tracing-log = "0.2.0"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+
+[dependencies.libcosmic]
+git = "https://github.com/pop-os/libcosmic"
+# Same feature set as pop-os/cosmic-applets.
+default-features = false
+features = ["applet", "applet-token", "dbus-config", "multi-window", "tokio", "wayland", "winit"]
+
+[profile.release]
+opt-level = 3
+panic = "abort"
+lto = "thin"

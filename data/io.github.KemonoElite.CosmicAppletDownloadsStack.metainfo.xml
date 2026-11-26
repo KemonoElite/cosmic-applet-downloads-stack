@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.KemonoElite.CosmicAppletDownloadsStack</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <project_group>COSMIC</project_group>
+  <developer id="io.github.kemonoelite">
+    <name>KemonoElite</name>
+  </developer>
+  <url type="homepage">https://github.com/KemonoElite/cosmic-applet-downloads-stack</url>
+  <url type="bugtracker">https://github.com/KemonoElite/cosmic-applet-downloads-stack/issues</url>
+  <name>Downloads Stack</name>
+  <summary>Your most recent downloads, fanned out from the COSMIC panel</summary>
+  <description>
+    <p>A COSMIC panel applet that shows your most recent downloads in a curved fan, like a Dock stack. Click a file to open it, or open the whole Downloads folder.</p>
+  </description>
+  <launchable type="desktop-id">io.github.KemonoElite.CosmicAppletDownloadsStack.desktop</launchable>
+  <provides>
+    <binary>cosmic-applet-downloads-stack</binary>
+  </provides>
+  <content_rating type="oars-1.1" />
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <releases>
+    <release version="0.2.0" date="2026-11-26" />
+    <release version="0.1.0" date="2026-10-16" />
+  </releases>
+</component>

@@ -1,0 +1,15 @@
+[Desktop Entry]
+Name=Downloads Stack
+Comment=Your most recent downloads, fanned out from the panel
+Type=Application
+Exec=cosmic-applet-downloads-stack
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;Downloads;Stack;Files;Recent;
+Icon=io.github.KemonoElite.CosmicAppletDownloadsStack-symbolic
+StartupNotify=true
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicShrinkable=true
+X-HostWaylandDisplay=true
+X-CosmicHoverPopup=Auto
