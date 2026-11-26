@@ -64,20 +64,6 @@ pub fn recent(dir: &Path, limit: usize) -> Vec<Entry> {
     items.into_iter().map(|(_, entry)| entry).collect()
 }
 
-/// Shortens long names in the middle, so the extension stays visible.
-pub fn shorten(name: &str, max_chars: usize) -> String {
-    let chars: Vec<char> = name.chars().collect();
-    if chars.len() <= max_chars {
-        return name.to_owned();
-    }
-    let keep = max_chars.saturating_sub(1);
-    let tail = keep / 3;
-    let head = keep - tail;
-    let start: String = chars[..head].iter().collect();
-    let end: String = chars[chars.len() - tail..].iter().collect();
-    format!("{start}…{end}")
-}
-
 /// Browsers write these while a download is still in progress.
 fn is_partial(name: &str) -> bool {
     const PARTIAL: [&str; 5] = [".part", ".crdownload", ".download", ".opdownload", ".tmp"];
@@ -101,19 +87,6 @@ fn icon_names(path: &Path, is_dir: bool) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn short_names_are_kept() {
-        assert_eq!(shorten("report.pdf", 30), "report.pdf");
-    }
-
-    #[test]
-    fn long_names_keep_their_extension() {
-        let short = shorten("a-really-long-file-name-from-the-internet.tar.gz", 30);
-        assert_eq!(short.chars().count(), 30);
-        assert!(short.ends_with(".tar.gz"));
-        assert!(short.contains('…'));
-    }
 
     #[test]
     fn partial_downloads_are_hidden() {

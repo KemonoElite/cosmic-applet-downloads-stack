@@ -15,23 +15,25 @@ use cosmic::{
     cctk::sctk::reexports::calloop,
     iced::{
         self, Alignment, Background, Border, Length, Limits, Padding, Subscription,
-        widget::{column, row, text::Wrapping},
+        widget::{column, row},
         window,
     },
     surface, theme,
     widget::{self, icon, space, text},
 };
+use cosmic::iced::core::text::{Ellipsize, EllipsizeHeightLimit, Wrapping};
 use std::{borrow::Cow, path::PathBuf};
 
 /// How many recent items the stack shows.
 const MAX_ITEMS: usize = 10;
-/// Longer file names are shortened in the middle.
-const MAX_NAME_CHARS: usize = 30;
+/// Widest a label may get (px). Longer names are shortened in the middle, so the extension
+/// stays visible.
+const LABEL_MAX_WIDTH: f32 = 400.0;
 const ICON_SIZE: u16 = 32;
 /// How far (px) the fan bends sideways at its far end.
 const ARC_DEPTH: f32 = 40.0;
-/// Wider than libcosmic's default 360 px, so a full-length name, its icon and the arc fit.
-const POPUP_MAX_WIDTH: f32 = 480.0;
+/// Wider than libcosmic's default 360 px, so a full-width label, its icon and the arc fit.
+const POPUP_MAX_WIDTH: f32 = 600.0;
 
 // The fan is drawn tighter than a regular applet menu. COSMIC's spacing tokens are menu-sized
 // (and grow with the interface density setting), so the fan keeps its own measurements.
@@ -226,7 +228,7 @@ impl cosmic::Application for DownloadsStack {
                 .enumerate()
                 .map(|(d, (entry, handle))| {
                     fan_row(
-                        downloads::shorten(&entry.name, MAX_NAME_CHARS),
+                        entry.name.clone(),
                         handle.clone(),
                         d,
                         Message::Open(entry.path.clone()),
@@ -359,8 +361,13 @@ fn file_icon(names: &[String]) -> icon::Handle {
 fn fan_row<'a>(label: String, handle: icon::Handle, d: usize, msg: Message) -> Element<'a, Message> {
     let t = (d as f32 / MAX_ITEMS as f32).min(1.0);
 
-    // Names are already shortened, so a label never needs a second line.
-    let pill = widget::container(text::body(label).wrapping(Wrapping::None))
+    // One line; a name too long for the label is shortened in the middle to fit.
+    let label = text::body(label)
+        .wrapping(Wrapping::None)
+        .ellipsize(Ellipsize::Middle(EllipsizeHeightLimit::Lines(1)));
+
+    let pill = widget::container(label)
+        .max_width(LABEL_MAX_WIDTH)
         .padding(PILL_PADDING)
         .class(theme::Container::custom(pill_style));
 

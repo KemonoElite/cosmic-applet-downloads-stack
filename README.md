@@ -62,7 +62,7 @@ holds the desktop entry's name, comment and keywords, so `build.rs` picks those 
 
 ## Tweak
 
-In `src/lib.rs`: `MAX_ITEMS` (how many files), `MAX_NAME_CHARS`, `ARC_DEPTH` (curve of the fan),
+In `src/lib.rs`: `MAX_ITEMS` (how many files), `LABEL_MAX_WIDTH`, `ARC_DEPTH` (curve of the fan),
 and the fan's spacing (`ROW_SPACING`, `PILL_PADDING`, ...).
 
 ## Icons
