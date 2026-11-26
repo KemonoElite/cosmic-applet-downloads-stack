@@ -55,6 +55,8 @@
             makeBinaryWrapper
           ];
           buildInputs = with pkgs; [
+            # libgcc_s.so.1. autoPatchelfHook rewrites the RPATH, so it has to find this itself.
+            stdenv.cc.cc.lib
             libxkbcommon
             libglvnd # For libEGL
             wayland
