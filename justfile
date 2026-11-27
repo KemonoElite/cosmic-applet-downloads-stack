@@ -15,8 +15,10 @@ desktop-src := targetdir / 'xdgen' / appid + '.desktop'
 desktop-dst := sharedir / 'applications' / appid + '.desktop'
 metainfo-src := 'data' / appid + '.metainfo.xml'
 metainfo-dst := sharedir / 'metainfo' / appid + '.metainfo.xml'
-icon-src := 'data' / 'icons' / 'scalable' / 'apps' / appid + '-symbolic.svg'
-icon-dst := iconsdir / 'scalable' / 'apps' / appid + '-symbolic.svg'
+icon-src := 'data' / 'icons' / 'scalable' / 'apps' / appid + '.svg'
+icon-dst := iconsdir / 'scalable' / 'apps' / appid + '.svg'
+symbolic-src := 'data' / 'icons' / 'scalable' / 'apps' / appid + '-symbolic.svg'
+symbolic-dst := iconsdir / 'scalable' / 'apps' / appid + '-symbolic.svg'
 
 default: build-release
 
@@ -41,7 +43,8 @@ install:
     install -Dm0644 {{ desktop-src }} {{ desktop-dst }}
     install -Dm0644 {{ metainfo-src }} {{ metainfo-dst }}
     install -Dm0644 {{ icon-src }} {{ icon-dst }}
+    install -Dm0644 {{ symbolic-src }} {{ symbolic-dst }}
 
 # Uninstalls installed files
 uninstall:
-    rm -f {{ bin-dst }} {{ desktop-dst }} {{ metainfo-dst }} {{ icon-dst }}
+    rm -f {{ bin-dst }} {{ desktop-dst }} {{ metainfo-dst }} {{ icon-dst }} {{ symbolic-dst }}
