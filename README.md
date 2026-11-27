@@ -2,7 +2,12 @@
 
 A downloads applet for the [COSMIC](https://github.com/pop-os/cosmic-epoch) desktop panel that fans out your most recent downloads, like a Dock stack on macOS.
 
-<img src="screenshots/downloads-stack.png" alt="Downloads Stack fanned out from the panel, with a download in progress" width="380">
+<table>
+  <tr>
+    <td><img src="screenshots/downloads-stack.png" alt="Downloads Stack fanned out from the panel" width="380"></td>
+    <td><img src="screenshots/downloads-stack.gif" alt="Downloads Stack opening from the panel" width="380"></td>
+  </tr>
+</table>
 
 ## Features
 
