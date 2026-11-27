@@ -2,7 +2,7 @@
 
 //! Reading the Downloads folder. Nothing here touches the UI, so it runs on a blocking thread.
 
-use crate::chromium;
+use crate::{chromium, thumbnails};
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -27,6 +27,8 @@ pub struct Entry {
     pub icon_names: Vec<String>,
     /// Set while the file is still downloading.
     pub progress: Option<Progress>,
+    /// Set for a finished picture that can be previewed.
+    pub picture: Option<thumbnails::Stamp>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +117,11 @@ pub fn scan(dir: &Path, limit: usize) -> Scan {
             };
 
             let icon_names = icon_names(Path::new(&name), meta.is_dir());
+            let picture = (progress.is_none() && meta.is_file() && thumbnails::supported(&path))
+                .then_some(thumbnails::Stamp {
+                    len: meta.len(),
+                    modified,
+                });
             Some((
                 modified,
                 meta.len(),
@@ -123,6 +130,7 @@ pub fn scan(dir: &Path, limit: usize) -> Scan {
                     name,
                     icon_names,
                     progress,
+                    picture,
                 },
             ))
         })

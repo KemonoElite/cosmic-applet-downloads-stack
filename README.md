@@ -9,6 +9,9 @@ A downloads applet for the [COSMIC](https://github.com/pop-os/cosmic-epoch) desk
 - **Recent downloads fan** - your 10 most recent files and folders, curved out from the panel and newest closest to it (on a bottom panel the newest sits at the bottom, like the Dock)
   - Click a file to open it in its default app, or **Open in Files** to open the whole folder
   - Long names are shortened in the middle, so the extension stays visible
+- **Picture previews** - photos and images show a small copy of themselves instead of a file-type icon, turned the right way up and with rounded corners
+  - Supports JPEG, PNG, WebP, GIF, BMP, TIFF, ICO, QOI, TGA, and SVG
+  - Each picture is decoded once in the background and kept in memory, so the stack opens instantly and previews fill in as they're ready
 - **Downloads in progress** - unfinished downloads get their own **Downloads** card between the fan and the panel, with a progress bar on each, updated every second
   - Shows "4.5 MB of 12 MB" for Chromium-based browsers, and a counting size with an animated bar for the rest (see [Download progress](#download-progress))
   - Marks a download **Stalled** after 30 seconds without growing, and **Interrupted** when the browser reports it failed or paused
@@ -104,6 +107,7 @@ To change the layout, edit the constants at the top of `src/lib.rs` and rebuild:
 |---|---|---|
 | `MAX_ITEMS` | How many recent files the fan shows | `10` |
 | `MAX_DOWNLOADS` | How many downloads in progress the card lists | `5` |
+| `THUMBNAIL_RADIUS` | Corner rounding of picture previews, in px | `4` |
 | `LABEL_MAX_WIDTH` | Widest a file name label may get, in px | `400` |
 | `ARC_DEPTH` | How far the fan curves sideways at its far end, in px | `40` |
 | `ROW_SPACING`, `PILL_PADDING`, ... | Spacing inside the fan | - |
@@ -137,6 +141,12 @@ Neither `XDG_DOWNLOAD_DIR` nor `~/Downloads` points to an existing folder. Check
 
 On NixOS the panel doesn't always pass the profile folders that hold icon themes on to applets, which hides themes installed through `users.users.<name>.packages` or Home Manager. The applet adds those folders itself on startup (`src/icons.rs`), so the theme picked in COSMIC Settings should be used. If a file type still shows a generic icon, your theme has no icon for that mime type; the applet tries the specific icon (`image-png`), then the generic one (`image-x-generic`), then a symbolic fallback, so a row is never blank.
 
+### A picture shows its icon instead of a preview
+
+- **Unsupported format** - HEIC, AVIF, and camera RAW files aren't decoded, so they keep their file-type icon
+- **Very large files** - pictures over 100 MB are skipped, to keep memory use low
+- **Damaged or mislabelled files** - a file that can't be decoded keeps its icon until it changes on disk
+
 ### Files don't open
 
 Files and folders are opened with `xdg-open`. The Nix package bundles `xdg-utils`; for a source install, make sure it's installed and that the file type has a default app.
@@ -157,6 +167,7 @@ The project is laid out like a crate from [pop-os/cosmic-applets](https://github
 - `src/lib.rs` - exposes `run()` and holds the applet and fan layout
 - `src/downloads.rs` - scans the Downloads folder and detects partial files
 - `src/chromium.rs` - reads expected sizes from Chromium's `History` database
+- `src/thumbnails.rs` - decodes and caches picture previews
 - `src/icons.rs` - makes NixOS profile icon themes visible
 - `i18n/` - Fluent translation files
 - `data/` - desktop entry template, metainfo, and icons

@@ -4,8 +4,10 @@ mod chromium;
 mod downloads;
 mod icons;
 mod localize;
+mod thumbnails;
 
 use crate::downloads::{Entry, Progress, Scan, State};
+use crate::thumbnails::{Lookup, Thumbnail};
 use cosmic::iced::core::text::{Ellipsize, EllipsizeHeightLimit, Wrapping};
 use cosmic::{
     Element, Task, app,
@@ -23,7 +25,13 @@ use cosmic::{
     surface, theme,
     widget::{self, icon, progress_bar, space, text},
 };
-use std::{borrow::Cow, collections::HashMap, path::PathBuf, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    time::Duration,
+};
+use tokio::sync::Semaphore;
 
 /// How many recent items the stack shows.
 const MAX_ITEMS: usize = 10;
@@ -31,6 +39,11 @@ const MAX_ITEMS: usize = 10;
 /// stays visible.
 const LABEL_MAX_WIDTH: f32 = 400.0;
 const ICON_SIZE: u16 = 32;
+/// Corner rounding of a picture's preview.
+const THUMBNAIL_RADIUS: f32 = 4.0;
+/// At most this many pictures are decoded at once, which keeps memory in check when a folder of
+/// large photos is opened for the first time.
+static DECODING: Semaphore = Semaphore::const_new(2);
 /// How far (px) the fan bends sideways at its far end.
 const ARC_DEPTH: f32 = 40.0;
 /// The popup fits the fan up to this width. A full-width label, its icon and the arc need ~540.
@@ -79,9 +92,11 @@ struct DownloadsStack {
     core: cosmic::app::Core,
     popup: Option<window::Id>,
     dir: Option<PathBuf>,
-    /// Finished files, newest first, with the icon resolved once per scan rather than on every
-    /// redraw.
-    files: Vec<(Entry, icon::Handle)>,
+    /// Finished files, newest first, with the icon or preview resolved once per scan rather than
+    /// on every redraw.
+    files: Vec<(Entry, Preview)>,
+    /// Pictures being decoded for a preview, so a refresh doesn't start them again.
+    decoding: HashSet<PathBuf>,
     /// Downloads in progress, newest first.
     downloading: Vec<Entry>,
     /// Icons by name list, so refreshing a download's progress doesn't look them up again.
@@ -99,6 +114,8 @@ enum Message {
     TogglePopup,
     Closed(window::Id),
     Loaded(Option<PathBuf>, Scan),
+    /// A picture's preview is ready, or `None` if it couldn't be decoded.
+    Thumbnail(PathBuf, Option<Thumbnail>),
     /// Re-read the folder to update downloads in progress.
     Refresh,
     Open(PathBuf),
@@ -128,6 +145,7 @@ impl cosmic::Application for DownloadsStack {
                 popup: None,
                 dir: downloads::dir(),
                 files: Vec::new(),
+                decoding: HashSet::new(),
                 downloading: Vec::new(),
                 icon_cache: HashMap::new(),
                 loaded: false,
@@ -184,24 +202,15 @@ impl cosmic::Application for DownloadsStack {
                     self.popup = None;
                 }
             }
-            Message::Loaded(dir, scan) => {
-                self.dir = dir;
-                let cache = &mut self.icon_cache;
-                self.downloading = scan.downloading;
-                self.downloading.truncate(MAX_DOWNLOADS);
-                self.files = scan
-                    .files
-                    .into_iter()
-                    .map(|entry| {
-                        let handle = cache
-                            .entry(entry.icon_names.clone())
-                            .or_insert_with(|| file_icon(&entry.icon_names))
-                            .clone();
-                        (entry, handle)
-                    })
-                    .collect();
-                self.loaded = true;
-                self.scanning = false;
+            Message::Loaded(dir, scan) => return self.loaded(dir, scan),
+            Message::Thumbnail(path, thumbnail) => {
+                self.decoding.remove(&path);
+                if let Some(thumbnail) = thumbnail
+                    && let Some((_, preview)) =
+                        self.files.iter_mut().find(|(entry, _)| entry.path == path)
+                {
+                    *preview = Preview::Picture(thumbnail);
+                }
             }
             Message::Refresh => {
                 if self.popup.is_some() && !self.scanning {
@@ -271,10 +280,10 @@ impl cosmic::Application for DownloadsStack {
                 .files
                 .iter()
                 .enumerate()
-                .map(|(d, (entry, handle))| {
+                .map(|(d, (entry, preview))| {
                     fan_row(
                         entry.name.clone(),
-                        handle.clone(),
+                        preview.clone(),
                         d,
                         Message::Open(entry.path.clone()),
                     )
@@ -287,9 +296,11 @@ impl cosmic::Application for DownloadsStack {
 
             rows.push(fan_row(
                 fl!("open-in-files"),
-                icon::from_name("folder-open-symbolic")
-                    .size(ICON_SIZE)
-                    .handle(),
+                Preview::Icon(
+                    icon::from_name("folder-open-symbolic")
+                        .size(ICON_SIZE)
+                        .handle(),
+                ),
                 self.files.len(),
                 Message::OpenFolder,
             ));
@@ -364,6 +375,61 @@ impl cosmic::Application for DownloadsStack {
 }
 
 impl DownloadsStack {
+    /// Takes in a fresh scan of the folder, and starts decoding any new pictures.
+    fn loaded(&mut self, dir: Option<PathBuf>, scan: Scan) -> app::Task<Message> {
+        self.dir = dir;
+        self.downloading = scan.downloading;
+        self.downloading.truncate(MAX_DOWNLOADS);
+
+        let mut to_decode = Vec::new();
+        self.files = scan
+            .files
+            .into_iter()
+            .map(|entry| {
+                let preview = self.preview(&entry, &mut to_decode);
+                (entry, preview)
+            })
+            .collect();
+        self.loaded = true;
+        self.scanning = false;
+
+        let files = &self.files;
+        thumbnails::retain(|path| files.iter().any(|(entry, _)| entry.path == path));
+
+        let jobs: Vec<_> = to_decode
+            .into_iter()
+            .filter(|(path, _)| self.decoding.insert(path.clone()))
+            .map(|(path, stamp)| decode_thumbnail(path, stamp))
+            .collect();
+        Task::batch(jobs)
+    }
+
+    /// The preview for a file in the fan. A picture shows a copy of itself once it's been
+    /// decoded; until then, and for everything else, the file-type icon. Pictures that still
+    /// need decoding are added to `to_decode`.
+    fn preview(
+        &mut self,
+        entry: &Entry,
+        to_decode: &mut Vec<(PathBuf, thumbnails::Stamp)>,
+    ) -> Preview {
+        if let Some(stamp) = entry.picture {
+            match thumbnails::cached(&entry.path, stamp) {
+                Lookup::Ready(thumbnail) => return Preview::Picture(thumbnail),
+                Lookup::Failed => {}
+                Lookup::Missing => to_decode.push((entry.path.clone(), stamp)),
+            }
+        } else if thumbnails::is_svg(&entry.path) {
+            return Preview::Icon(icon::from_path(entry.path.clone()));
+        }
+
+        Preview::Icon(
+            self.icon_cache
+                .entry(entry.icon_names.clone())
+                .or_insert_with(|| file_icon(&entry.icon_names))
+                .clone(),
+        )
+    }
+
     fn close_popup(&mut self) -> app::Task<Message> {
         match self.popup.take() {
             Some(p) => cosmic::surface::surface_task(cosmic::surface::action::destroy_popup(p)),
@@ -413,6 +479,21 @@ fn scan() -> app::Task<Message> {
     })
 }
 
+/// Makes the preview of one picture on a blocking thread.
+fn decode_thumbnail(path: PathBuf, stamp: thumbnails::Stamp) -> app::Task<Message> {
+    cosmic::task::future(async move {
+        let _permit = DECODING.acquire().await.ok();
+        let thumbnail = tokio::task::spawn_blocking({
+            let path = path.clone();
+            move || thumbnails::load(&path, stamp)
+        })
+        .await
+        .ok()
+        .flatten();
+        Message::Thumbnail(path, thumbnail)
+    })
+}
+
 fn open(path: PathBuf, token: Option<String>) {
     let mut cmd = std::process::Command::new("xdg-open");
     cmd.arg(path);
@@ -447,14 +528,40 @@ fn file_icon(names: &[String]) -> icon::Handle {
     }
 }
 
-/// One row of the fan: the label on a pill, with its icon to the right.
+/// What sits to the right of a label in the fan.
+#[derive(Debug, Clone)]
+enum Preview {
+    /// A themed icon, or an SVG drawn as is.
+    Icon(icon::Handle),
+    /// A small copy of the picture itself.
+    Picture(Thumbnail),
+}
+
+impl Preview {
+    /// An `ICON_SIZE` square, so rows line up whatever shape the picture is.
+    fn view<'a>(self) -> Element<'a, Message> {
+        match self {
+            Self::Icon(handle) => icon::icon(handle).size(ICON_SIZE).into(),
+            Self::Picture(thumbnail) => {
+                let side = f32::from(ICON_SIZE);
+                let (width, height) = thumbnail.fit(side);
+                // Sized to the picture, so the rounding follows its corners.
+                let picture = widget::image(thumbnail.handle)
+                    .width(width)
+                    .height(height)
+                    .border_radius(THUMBNAIL_RADIUS);
+                widget::container(picture)
+                    .center_x(side)
+                    .center_y(side)
+                    .into()
+            }
+        }
+    }
+}
+
+/// One row of the fan: the label on a pill, with its icon or preview to the right.
 /// `d` is the distance from the panel and drives the sideways arc.
-fn fan_row<'a>(
-    label: String,
-    handle: icon::Handle,
-    d: usize,
-    msg: Message,
-) -> Element<'a, Message> {
+fn fan_row<'a>(label: String, preview: Preview, d: usize, msg: Message) -> Element<'a, Message> {
     let t = (d as f32 / MAX_ITEMS as f32).min(1.0);
 
     // One line; a name too long for the label is shortened in the middle to fit.
@@ -467,7 +574,7 @@ fn fan_row<'a>(
         .padding(PILL_PADDING)
         .class(theme::Container::custom(pill_style));
 
-    let content = row![pill, icon::icon(handle).size(ICON_SIZE)]
+    let content = row![pill, preview.view()]
         .spacing(LABEL_GAP)
         .align_y(Alignment::Center);
 
@@ -600,33 +707,39 @@ fn pill_style(theme: &cosmic::Theme) -> widget::container::Style {
 #[cfg(test)]
 mod tests {
     use cosmic::iced::{
-        Length, Size,
+        Font, Length, Pixels, Size,
         advanced::{Widget, layout::Limits, widget::Tree},
         widget::{Column, Container, Space},
     };
+
+    /// The renderer the applet draws with. iced's placeholder renderer `()` only exists in debug
+    /// builds, and `nix flake check` runs the tests in release.
+    type Renderer = cosmic::Renderer;
 
     /// The Downloads card asks for the full width, inside a column set to shrink. It must come out
     /// as wide as the fan beside it, not as wide as the popup allows.
     #[test]
     fn card_is_as_wide_as_the_fan() {
         let fan = Space::new().width(250.0).height(40.0);
-        let card: Container<'_, (), cosmic::Theme, ()> = Container::new(Space::new().height(20.0))
-            .width(Length::Fill)
-            .padding(8);
+        let card: Container<'_, (), cosmic::Theme, Renderer> =
+            Container::new(Space::new().height(20.0))
+                .width(Length::Fill)
+                .padding(8);
 
-        let column: Column<'_, (), cosmic::Theme, ()> =
+        let column: Column<'_, (), cosmic::Theme, Renderer> =
             Column::with_children([fan.into(), card.into()])
                 .spacing(8)
                 .padding(8)
                 .width(Length::Shrink);
 
         // Wrapped the way `popup_container` wraps it.
-        let mut popup: Container<'_, (), cosmic::Theme, ()> =
+        let mut popup: Container<'_, (), cosmic::Theme, Renderer> =
             Container::new(Container::new(column)).height(Length::Shrink);
 
-        let mut tree = Tree::new(&popup as &dyn Widget<(), cosmic::Theme, ()>);
+        let mut tree = Tree::new(&popup as &dyn Widget<(), cosmic::Theme, Renderer>);
         let limits = Limits::new(Size::new(1.0, 1.0), Size::new(600.0, 1000.0));
-        let node = popup.layout(&mut tree, &(), &limits);
+        let renderer = Renderer::new(Font::default(), Pixels(14.0));
+        let node = popup.layout(&mut tree, &renderer, &limits);
 
         // 250 fan + 2×8 padding.
         assert_eq!(node.size().width, 266.0);

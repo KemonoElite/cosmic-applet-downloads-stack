@@ -14,6 +14,18 @@ cosmic-launch = { git = "https://github.com/pop-os/libcosmic", features = ["syst
 dirs = "6"
 i18n-embed = { version = "0.16.0", features = ["fluent-system", "desktop-requester"] }
 i18n-embed-fl = "0.10"
+# Decodes pictures for their previews in the fan.
+image = { version = "0.25.10", default-features = false, features = [
+    "bmp",
+    "gif",
+    "ico",
+    "jpeg",
+    "png",
+    "qoi",
+    "tga",
+    "tiff",
+    "webp",
+] }
 mime_guess = "2"
 rust-embed = "8.11.0"
 # Reads download sizes from Chromium's History database; bundled, so no system SQLite is needed.
