@@ -4,8 +4,8 @@ A COSMIC panel applet that fans out your most recent downloads, like a Dock stac
 Click a file to open it, or **Open in Files** to open the whole folder.
 
 - Newest file sits closest to the panel (bottom panel: newest at the bottom, like the Dock)
-- Downloads in progress (`.part`, `.crdownload`, ...) show a progress bar under their name,
-  updated every second while the stack is open
+- Downloads in progress (`.part`, `.crdownload`, ...) get their own **Downloads** card between
+  the fan and the panel, each with a progress bar across the card, updated every second
 - Hides dotfiles
 - Re-scans the folder every time it opens
 - Opened apps get focus, through a Wayland activation token like the stock applets
@@ -60,6 +60,10 @@ depends on the browser:
 - **Firefox** (`.part`) and others: the total isn't recorded anywhere the applet can read, so the
   bar animates and the size counts up.
 
+Chromium only records a download once its final name is settled. While a "Save as" dialog is
+open the file is called `Unconfirmed 123456.crdownload` and the bar animates; the name and total
+appear once you've picked where to save it.
+
 A download that hasn't grown for 30 seconds is marked **Stalled**; one the browser reports as
 failed or paused is marked **Interrupted**. Clicking a download in progress opens the Downloads
 folder.
@@ -93,3 +97,7 @@ symbolic generic icon is used so a row is never blank.
 On NixOS the panel doesn't always pass the profile folders that hold icon themes on to applets,
 which hides themes installed with `users.users.<name>.packages` or Home Manager. The applet adds
 those folders itself on startup (`src/icons.rs`), so the theme picked in COSMIC Settings is used.
+
+## License
+
+[GNU General Public License v3.0](LICENSE) only (`GPL-3.0-only`), the same as pop-os/cosmic-applets.

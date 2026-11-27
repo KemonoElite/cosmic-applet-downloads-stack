@@ -5,7 +5,7 @@ mod downloads;
 mod icons;
 mod localize;
 
-use crate::downloads::{Entry, Progress, State};
+use crate::downloads::{Entry, Progress, Scan, State};
 use cosmic::iced::core::text::{Ellipsize, EllipsizeHeightLimit, Wrapping};
 use cosmic::{
     Element, Task, app,
@@ -21,7 +21,7 @@ use cosmic::{
         window,
     },
     surface, theme,
-    widget::{self, icon, progress_bar, text},
+    widget::{self, icon, progress_bar, space, text},
 };
 use std::{borrow::Cow, collections::HashMap, path::PathBuf, time::Duration};
 
@@ -50,11 +50,21 @@ const ROW_EDGE: f32 = 8.0;
 const LABEL_GAP: u16 = 10;
 /// Inside the label pill: vertical, horizontal.
 const PILL_PADDING: [u16; 2] = [4, 10];
-/// The progress bar under a download's name.
-const BAR_WIDTH: f32 = 140.0;
+/// Downloads in progress get their own card between the fan and the panel.
+/// At most this many are listed.
+const MAX_DOWNLOADS: usize = 5;
+/// The card is at least this wide, even when the fan above it is narrower.
+const CARD_MIN_WIDTH: f32 = 300.0;
+/// Between the fan and the card.
+const CARD_GAP: u16 = 8;
+/// Inside the card, and between its heading and downloads.
+const CARD_PADDING: u16 = 8;
+const CARD_SPACING: u16 = 4;
+/// Inside one download: vertical, horizontal.
+const DOWNLOAD_PADDING: [u16; 2] = [4, 8];
+/// Between a download's name line and its bar.
+const PROGRESS_SPACING: u16 = 4;
 const BAR_GIRTH: f32 = 4.0;
-/// Between the name and the progress line, and between the bar and its caption.
-const PROGRESS_SPACING: u16 = 6;
 /// How often the stack re-reads the folder while something is downloading.
 const PROGRESS_REFRESH: Duration = Duration::from_secs(1);
 
@@ -69,8 +79,11 @@ struct DownloadsStack {
     core: cosmic::app::Core,
     popup: Option<window::Id>,
     dir: Option<PathBuf>,
-    /// Newest first, with the icon resolved once per scan rather than on every redraw.
-    entries: Vec<(Entry, icon::Handle)>,
+    /// Finished files, newest first, with the icon resolved once per scan rather than on every
+    /// redraw.
+    files: Vec<(Entry, icon::Handle)>,
+    /// Downloads in progress, newest first.
+    downloading: Vec<Entry>,
     /// Icons by name list, so refreshing a download's progress doesn't look them up again.
     icon_cache: HashMap<Vec<String>, icon::Handle>,
     loaded: bool,
@@ -85,7 +98,7 @@ struct DownloadsStack {
 enum Message {
     TogglePopup,
     Closed(window::Id),
-    Loaded(Option<PathBuf>, Vec<Entry>),
+    Loaded(Option<PathBuf>, Scan),
     /// Re-read the folder to update downloads in progress.
     Refresh,
     Open(PathBuf),
@@ -114,7 +127,8 @@ impl cosmic::Application for DownloadsStack {
                 core,
                 popup: None,
                 dir: downloads::dir(),
-                entries: Vec::new(),
+                files: Vec::new(),
+                downloading: Vec::new(),
                 icon_cache: HashMap::new(),
                 loaded: false,
                 scanning: false,
@@ -170,10 +184,13 @@ impl cosmic::Application for DownloadsStack {
                     self.popup = None;
                 }
             }
-            Message::Loaded(dir, entries) => {
+            Message::Loaded(dir, scan) => {
                 self.dir = dir;
                 let cache = &mut self.icon_cache;
-                self.entries = entries
+                self.downloading = scan.downloading;
+                self.downloading.truncate(MAX_DOWNLOADS);
+                self.files = scan
+                    .files
                     .into_iter()
                     .map(|entry| {
                         let handle = cache
@@ -247,51 +264,72 @@ impl cosmic::Application for DownloadsStack {
         }
 
         let content = if self.dir.is_none() {
-            column![message_row(fl!("no-downloads-folder"))]
+            column![message_row(fl!("no-downloads-folder"))].padding(FAN_PADDING)
         } else {
             // Built nearest-to-the-panel first, so `d` is the distance along the fan.
             let mut rows: Vec<Element<'_, Message>> = self
-                .entries
+                .files
                 .iter()
                 .enumerate()
                 .map(|(d, (entry, handle))| {
-                    // A file that's still downloading can't be opened yet; show where it is.
-                    let msg = match entry.progress {
-                        Some(_) => Message::OpenFolder,
-                        None => Message::Open(entry.path.clone()),
-                    };
-                    fan_row(entry.name.clone(), entry.progress, handle.clone(), d, msg)
+                    fan_row(
+                        entry.name.clone(),
+                        handle.clone(),
+                        d,
+                        Message::Open(entry.path.clone()),
+                    )
                 })
                 .collect();
 
-            if self.loaded && self.entries.is_empty() {
+            if self.loaded && self.files.is_empty() && self.downloading.is_empty() {
                 rows.push(message_row(fl!("no-downloads")));
             }
 
             rows.push(fan_row(
                 fl!("open-in-files"),
-                None,
                 icon::from_name("folder-open-symbolic")
                     .size(ICON_SIZE)
                     .handle(),
-                self.entries.len(),
+                self.files.len(),
                 Message::OpenFolder,
             ));
 
+            // Keeps the card below from getting cramped under a narrow fan.
+            if !self.downloading.is_empty() {
+                rows.push(space::horizontal().width(CARD_MIN_WIDTH).into());
+            }
+
+            let panel_at_bottom = matches!(self.core.applet.anchor, PanelAnchor::Bottom);
             // With a bottom panel the newest file sits at the bottom, like the macOS Dock.
-            if matches!(self.core.applet.anchor, PanelAnchor::Bottom) {
+            if panel_at_bottom {
                 rows.reverse();
             }
 
-            iced::widget::Column::with_children(rows)
-        };
-
-        let content = content
-            .spacing(ROW_SPACING)
             // Rows are only as wide as their content and line up on the right, so a long name
             // grows the fan to the left and the icons stay put.
-            .align_x(Alignment::End)
-            .padding(FAN_PADDING);
+            let fan = iced::widget::Column::with_children(rows)
+                .spacing(ROW_SPACING)
+                .align_x(Alignment::End);
+
+            // The Downloads card goes between the fan and the panel.
+            let mut parts: Vec<Element<'_, Message>> = vec![fan.into()];
+            if !self.downloading.is_empty() {
+                let card = downloads_card(&self.downloading);
+                if matches!(self.core.applet.anchor, PanelAnchor::Top) {
+                    parts.insert(0, card);
+                } else {
+                    parts.push(card);
+                }
+            }
+
+            iced::widget::Column::with_children(parts)
+                .spacing(CARD_GAP)
+                .align_x(Alignment::End)
+                .padding(FAN_PADDING)
+                // The card asks for the full width; with the column set to shrink, "full" is
+                // the fan's width rather than the popup's maximum.
+                .width(Length::Shrink)
+        };
 
         // popup_container is a fixed 360 px wide; let it fit the fan instead.
         self.core
@@ -310,11 +348,7 @@ impl cosmic::Application for DownloadsStack {
     fn subscription(&self) -> Subscription<Message> {
         let token = activation_token_subscription(0).map(Message::Token);
 
-        let downloading = self
-            .entries
-            .iter()
-            .any(|(entry, _)| entry.progress.is_some());
-        if self.popup.is_some() && downloading {
+        if self.popup.is_some() && !self.downloading.is_empty() {
             Subscription::batch([
                 token,
                 iced::time::every(PROGRESS_REFRESH).map(|_| Message::Refresh),
@@ -365,17 +399,17 @@ impl DownloadsStack {
 /// one created (or moved) after login is picked up.
 fn scan() -> app::Task<Message> {
     cosmic::task::future(async {
-        let (dir, entries) = tokio::task::spawn_blocking(|| {
+        let (dir, scan) = tokio::task::spawn_blocking(|| {
             let dir = downloads::dir();
-            let entries = dir
+            let scan = dir
                 .as_deref()
-                .map(|dir| downloads::recent(dir, MAX_ITEMS))
+                .map(|dir| downloads::scan(dir, MAX_ITEMS))
                 .unwrap_or_default();
-            (dir, entries)
+            (dir, scan)
         })
         .await
         .unwrap_or_default();
-        Message::Loaded(dir, entries)
+        Message::Loaded(dir, scan)
     })
 }
 
@@ -413,12 +447,10 @@ fn file_icon(names: &[String]) -> icon::Handle {
     }
 }
 
-/// One row of the fan: the label on a pill, with its icon to the right. A download in progress
-/// gets a progress bar under its name.
+/// One row of the fan: the label on a pill, with its icon to the right.
 /// `d` is the distance from the panel and drives the sideways arc.
 fn fan_row<'a>(
     label: String,
-    progress: Option<Progress>,
     handle: icon::Handle,
     d: usize,
     msg: Message,
@@ -430,19 +462,12 @@ fn fan_row<'a>(
         .wrapping(Wrapping::None)
         .ellipsize(Ellipsize::Middle(EllipsizeHeightLimit::Lines(1)));
 
-    let body: Element<'a, Message> = match progress {
-        Some(progress) => column![label, progress_line(progress)]
-            .spacing(PROGRESS_SPACING)
-            .into(),
-        None => label.into(),
-    };
-
-    let pill = widget::container(body)
+    let pill = widget::container(label)
         .max_width(LABEL_MAX_WIDTH)
         .padding(PILL_PADDING)
         .class(theme::Container::custom(pill_style));
 
-    let content = row![pill, icon::icon(handle).size(ICON_SIZE),]
+    let content = row![pill, icon::icon(handle).size(ICON_SIZE)]
         .spacing(LABEL_GAP)
         .align_y(Alignment::Center);
 
@@ -458,24 +483,67 @@ fn fan_row<'a>(
         .into()
 }
 
-/// The bar and caption under a download's name, like a macOS download stack.
+/// The card listing downloads in progress: a centered heading, then each download with its name,
+/// size and a bar across the card's full width. As wide as the fan, no icons.
+fn downloads_card<'a>(downloading: &[Entry]) -> Element<'a, Message> {
+    let heading = widget::container(text::heading(fl!("downloads")))
+        .center_x(Length::Fill)
+        .padding([0, 0, CARD_SPACING, 0]);
+
+    let mut list = column![heading].spacing(CARD_SPACING).width(Length::Fill);
+    for entry in downloading {
+        if let Some(progress) = entry.progress {
+            list = list.push(download_row(entry.name.clone(), progress));
+        }
+    }
+
+    widget::container(list)
+        .width(Length::Fill)
+        .padding(CARD_PADDING)
+        .class(theme::Container::custom(card_style))
+        .into()
+}
+
+/// One download: name on the left, size on the right, and the bar underneath.
 ///
 /// The bar fills up when the size is known (Chromium-based browsers). Otherwise it animates
-/// while data arrives, and the caption counts up.
-fn progress_line<'a>(progress: Progress) -> Element<'a, Message> {
-    let fraction = progress.fraction();
+/// while data arrives, and the size counts up. Clicking opens the Downloads folder, since the
+/// file can't be opened yet.
+fn download_row<'a>(name: String, progress: Progress) -> Element<'a, Message> {
+    let name = text::body(name)
+        .wrapping(Wrapping::None)
+        .ellipsize(Ellipsize::Middle(EllipsizeHeightLimit::Lines(1)))
+        .width(Length::Fill);
+    let caption = text::caption(progress_caption(progress)).wrapping(Wrapping::None);
 
-    let bar: Element<'a, Message> = match (progress.state, fraction) {
+    let bar: Element<'a, Message> = match (progress.state, progress.fraction()) {
         (State::Active, None) => progress_bar::indeterminate_linear()
-            .width(BAR_WIDTH)
+            .width(Length::Fill)
             .girth(BAR_GIRTH)
             .into(),
         (_, fraction) => progress_bar::determinate_linear(fraction.unwrap_or(0.0))
-            .width(BAR_WIDTH)
+            .width(Length::Fill)
             .girth(BAR_GIRTH)
             .into(),
     };
 
+    let content = column![
+        row![name, caption]
+            .spacing(PROGRESS_SPACING)
+            .align_y(Alignment::Center),
+        bar,
+    ]
+    .spacing(PROGRESS_SPACING);
+
+    menu_button(content)
+        .padding(DOWNLOAD_PADDING)
+        .on_press(Message::OpenFolder)
+        .into()
+}
+
+/// "4.5 MB of 12 MB", "4.5 MB" when the total isn't known, with "Stalled" or "Interrupted" in
+/// front when the download isn't moving.
+fn progress_caption(progress: Progress) -> String {
     let received = downloads::format_size(progress.received);
     let size = match progress.total {
         Some(total) => fl!(
@@ -485,16 +553,11 @@ fn progress_line<'a>(progress: Progress) -> Element<'a, Message> {
         ),
         None => received,
     };
-    let caption = match progress.state {
+    match progress.state {
         State::Active => size,
         State::Stalled => fl!("progress-stalled", size = size),
         State::Interrupted => fl!("progress-interrupted", size = size),
-    };
-
-    row![bar, text::caption(caption).wrapping(Wrapping::None)]
-        .spacing(PROGRESS_SPACING)
-        .align_y(Alignment::Center)
-        .into()
+    }
 }
 
 /// A line of text in place of the fan, sized to its content.
@@ -502,6 +565,21 @@ fn message_row<'a>(message: String) -> Element<'a, Message> {
     widget::container(text::body(message))
         .padding(Padding::from(PILL_PADDING))
         .into()
+}
+
+fn card_style(theme: &cosmic::Theme) -> widget::container::Style {
+    let cosmic = theme.cosmic();
+    let container = &cosmic.primary(theme.transparent);
+    widget::container::Style {
+        text_color: Some(container.on.into()),
+        background: Some(Background::Color(container.base.into())),
+        border: Border {
+            radius: cosmic.corner_radii.radius_s.into(),
+            width: 1.0,
+            color: container.divider.into(),
+        },
+        ..Default::default()
+    }
 }
 
 fn pill_style(theme: &cosmic::Theme) -> widget::container::Style {
@@ -516,5 +594,44 @@ fn pill_style(theme: &cosmic::Theme) -> widget::container::Style {
             color: component.divider.into(),
         },
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use cosmic::iced::{
+        Length, Size,
+        advanced::{Widget, layout::Limits, widget::Tree},
+        widget::{Column, Container, Space},
+    };
+
+    /// The Downloads card asks for the full width, inside a column set to shrink. It must come out
+    /// as wide as the fan beside it, not as wide as the popup allows.
+    #[test]
+    fn card_is_as_wide_as_the_fan() {
+        let fan = Space::new().width(250.0).height(40.0);
+        let card: Container<'_, (), cosmic::Theme, ()> = Container::new(Space::new().height(20.0))
+            .width(Length::Fill)
+            .padding(8);
+
+        let column: Column<'_, (), cosmic::Theme, ()> =
+            Column::with_children([fan.into(), card.into()])
+                .spacing(8)
+                .padding(8)
+                .width(Length::Shrink);
+
+        // Wrapped the way `popup_container` wraps it.
+        let mut popup: Container<'_, (), cosmic::Theme, ()> =
+            Container::new(Container::new(column)).height(Length::Shrink);
+
+        let mut tree = Tree::new(&popup as &dyn Widget<(), cosmic::Theme, ()>);
+        let limits = Limits::new(Size::new(1.0, 1.0), Size::new(600.0, 1000.0));
+        let node = popup.layout(&mut tree, &(), &limits);
+
+        // 250 fan + 2×8 padding.
+        assert_eq!(node.size().width, 266.0);
+        let column = &node.children()[0].children()[0];
+        let card = column.children()[1].bounds();
+        assert_eq!(card.width, 250.0);
     }
 }

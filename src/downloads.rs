@@ -4,7 +4,7 @@
 
 use crate::chromium;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
@@ -66,11 +66,20 @@ pub fn dir() -> Option<PathBuf> {
     .find(|path| path.is_dir())
 }
 
-/// The `limit` most recently modified items in `dir`, newest first, downloads in progress
-/// included. Hidden files are skipped.
-pub fn recent(dir: &Path, limit: usize) -> Vec<Entry> {
+/// What's in the Downloads folder.
+#[derive(Debug, Clone, Default)]
+pub struct Scan {
+    /// The most recently modified finished files and folders, newest first.
+    pub files: Vec<Entry>,
+    /// Downloads still in progress, newest first.
+    pub downloading: Vec<Entry>,
+}
+
+/// The `limit` most recently modified finished items in `dir`, and every download in progress.
+/// Hidden files are skipped.
+pub fn scan(dir: &Path, limit: usize) -> Scan {
     let Ok(read_dir) = fs::read_dir(dir) else {
-        return Vec::new();
+        return Scan::default();
     };
 
     let now = SystemTime::now();
@@ -130,11 +139,14 @@ pub fn recent(dir: &Path, limit: usize) -> Vec<Entry> {
     });
 
     items.sort_by_key(|(modified, _, _)| std::cmp::Reverse(*modified));
-    items.truncate(limit);
-    let mut entries: Vec<Entry> = items.into_iter().map(|(_, _, entry)| entry).collect();
+    let (mut downloading, mut files): (Vec<Entry>, Vec<Entry>) = items
+        .into_iter()
+        .map(|(_, _, entry)| entry)
+        .partition(|entry| entry.progress.is_some());
+    files.truncate(limit);
 
-    add_browser_totals(&mut entries);
-    entries
+    add_browser_totals(&mut downloading);
+    Scan { files, downloading }
 }
 
 /// Fills in the expected size of Chromium downloads, and their real name ("Unconfirmed
@@ -153,8 +165,10 @@ fn add_browser_totals(entries: &mut [Entry]) {
 
     let downloads = chromium::unfinished();
     for entry in entries.iter_mut() {
-        let (Some(progress), Some(download)) = (&mut entry.progress, downloads.get(&entry.path))
-        else {
+        let Some(download) = find_download(&downloads, &entry.path) else {
+            continue;
+        };
+        let Some(progress) = &mut entry.progress else {
             continue;
         };
         progress.total = download.total;
@@ -165,6 +179,31 @@ fn add_browser_totals(entries: &mut [Entry]) {
             entry.name = name.to_string_lossy().into_owned();
             entry.icon_names = icon_names(Path::new(&entry.name), false);
         }
+    }
+}
+
+/// The browser's record for the partial file at `path`. The browser may have stored the real path
+/// of a symlinked Downloads folder, so resolved paths are compared too, then the file name alone.
+fn find_download<'a>(
+    downloads: &'a HashMap<PathBuf, chromium::Download>,
+    path: &Path,
+) -> Option<&'a chromium::Download> {
+    if let Some(download) = downloads.get(path) {
+        return Some(download);
+    }
+    if let Ok(real) = fs::canonicalize(path)
+        && let Some(download) = downloads.get(&real)
+    {
+        return Some(download);
+    }
+    let name = path.file_name()?;
+    let mut by_name = downloads
+        .values()
+        .filter(|download| download.current_path.file_name() == Some(name));
+    // Only when the name is unambiguous.
+    match (by_name.next(), by_name.next()) {
+        (Some(download), None) => Some(download),
+        _ => None,
     }
 }
 
@@ -229,6 +268,32 @@ mod tests {
     }
 
     #[test]
+    fn records_are_found_through_symlinks_and_by_name() {
+        let record = |current: &str| chromium::Download {
+            current_path: PathBuf::from(current),
+            target_path: PathBuf::from("/real/Downloads/a.iso"),
+            total: Some(10),
+            interrupted: false,
+        };
+        let mut downloads = HashMap::new();
+        downloads.insert(
+            PathBuf::from("/real/Downloads/a.iso.crdownload"),
+            record("/real/Downloads/a.iso.crdownload"),
+        );
+
+        // Seen through a symlinked folder that doesn't resolve here: matched by name.
+        let seen = Path::new("/home/me/Downloads/a.iso.crdownload");
+        assert_eq!(find_download(&downloads, seen).unwrap().total, Some(10));
+
+        // Two records with the same name: no guess.
+        downloads.insert(
+            PathBuf::from("/other/a.iso.crdownload"),
+            record("/other/a.iso.crdownload"),
+        );
+        assert!(find_download(&downloads, seen).is_none());
+    }
+
+    #[test]
     fn mime_icon_comes_first() {
         let names = icon_names(Path::new("photo.png"), false);
         assert_eq!(names[0], "image-png");
@@ -254,20 +319,19 @@ mod tests {
         fs::write(dir.join("big.iso.part"), vec![0u8; 2048]).unwrap();
         fs::write(dir.join("done.txt"), b"hi").unwrap();
 
-        let entries = recent(&dir, 10);
+        let Scan { files, downloading } = scan(&dir, 10);
         fs::remove_dir_all(&dir).unwrap();
 
-        assert_eq!(entries.len(), 2);
-        let big = entries.iter().find(|e| e.name == "big.iso").unwrap();
+        assert_eq!(downloading.len(), 1);
+        let big = &downloading[0];
+        assert_eq!(big.name, "big.iso");
         let progress = big.progress.unwrap();
         assert_eq!(progress.received, 2048);
         assert_eq!(progress.total, None);
         assert_eq!(progress.state, State::Active);
         assert_eq!(big.icon_names, icon_names(Path::new("big.iso"), false));
-        assert!(
-            entries
-                .iter()
-                .any(|e| e.name == "done.txt" && e.progress.is_none())
-        );
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].name, "done.txt");
+        assert!(files[0].progress.is_none());
     }
 }
